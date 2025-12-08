@@ -1,0 +1,17 @@
+{
+    "default_target_column": "needs_upgrade",
+    "id_column": "ticket_id",
+    "date_column": "created_at",
+    "text_column": "problem_description",
+    "categorical_columns": [
+        "user_department",
+        "priority",
+        "os",
+        "location"
+    ],
+    "numeric_columns": [
+        "device_type",
+        "device_age_years",
+        "tickets_last_6_months"
+    ]
+}
