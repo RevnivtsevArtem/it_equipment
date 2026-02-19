@@ -373,9 +373,29 @@ def main() -> None:
         if "user_df" not in st.session_state:
             st.session_state["user_df"] = None
 
-        if uploaded_file is not None:
+with st.sidebar:
+    st.header("Загрузка данных")
+
+    if "user_df" not in st.session_state:
+        st.session_state["user_df"] = None
+
+    uploaded_file = st.file_uploader(
+        "Загрузите CSV с обращениями",
+        type=["csv"],
+    )
+
+    if uploaded_file is not None and st.session_state["user_df"] is None:
+        try:
             st.session_state["user_df"] = pd.read_csv(uploaded_file)
             st.success("Пользовательский датасет загружен.")
+        except Exception as e:
+            st.error(f"Ошибка загрузки: {e}")
+
+    if st.session_state["user_df"] is not None:
+        if st.button("Сбросить пользовательский датасет"):
+            st.session_state["user_df"] = None
+            st.success("Возврат к демонстрационному датасету")
+
 
         if st.button("Сбросить пользовательский датасет"):
             st.session_state["user_df"] = None
