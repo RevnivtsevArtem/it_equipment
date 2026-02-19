@@ -1,0 +1,202 @@
+# -*- coding: utf-8 -*-
+"""
+Главное web-приложение Streamlit.
+
+Автор: Ревнивцев Артем Александрович
+Тема ВКР: Интеллектуальная система прогнозирования потребностей в обновлении вычислительной техники.
+"""
+
+from __future__ import annotations
+
+import io
+import os
+
+import pandas as pd
+import streamlit as st
+
+# ВАЖНО: первая Streamlit-команда
+st.set_page_config(
+    page_title="Прогноз обновления вычислительной техники",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+from src.app_core import (
+    load_config,
+    fit_on_full_and_save,
+    load_model,
+    predict_needs_upgrade,
+    fit_model_and_evaluate,
+    evaluate_all_models,
+)
+
+from src.eda import (
+    plot_ticket_counts_by_department,
+    plot_ticket_counts_by_device_type,
+    plot_device_age_hist,
+    plot_tickets_last_6_months_hist,
+)
+
+from src.evaluation import (
+    plot_confusion_matrix,
+    plot_roc_curve,
+    plot_pr_curve,
+    metrics_to_markdown_table,
+)
+
+
+def _load_default_data() -> pd.DataFrame:
+    return pd.read_csv("data/sample_tickets.csv")
+
+
+def page_overview() -> None:
+    st.subheader("Общая информация о системе")
+    st.markdown(
+        """
+        Данное приложение реализует интеллектуальный сервис прогнозирования потребностей
+        в обновлении вычислительной техники на основе обращений в службу технической поддержки.
+        """
+    )
+
+
+def page_data(df: pd.DataFrame, cfg: dict) -> None:
+    st.subheader("Работа с данными")
+    st.write("Размер набора данных:", df.shape)
+    st.dataframe(df.head(20))
+
+    if st.checkbox("Показать статистику числовых признаков"):
+        st.write(df[cfg["numeric_columns"]].describe())
+
+    if st.checkbox("Скачать текущий датасет в CSV"):
+        buf = io.StringIO()
+        df.to_csv(buf, index=False)
+        st.download_button(
+            "Скачать CSV",
+            data=buf.getvalue(),
+            file_name="current_dataset.csv",
+            mime="text/csv",
+        )
+
+
+def page_training(df: pd.DataFrame, cfg: dict) -> None:
+    st.subheader("Обучение и сохранение модели")
+    target_col = cfg["default_target_column"]
+
+    if target_col not in df.columns:
+        st.error(f"Целевой столбец `{target_col}` отсутствует в данных.")
+        return
+
+    model_name = st.selectbox(
+        "Выберите модель для обучения",
+        ["LogisticRegression", "KNN", "RandomForest", "GradientBoosting", "ExtraTrees", "MLPClassifier"],
+    )
+
+    model_filename = st.text_input("Имя файла модели", value=f"{model_name.lower()}_full.pkl")
+    model_path = f"models/{model_filename}"
+
+    if st.button("Обучить модель на всём датасете и сохранить"):
+        with st.spinner("Идёт обучение модели..."):
+            _, metrics = fit_on_full_and_save(
+                df=df,
+                target_column=target_col,
+                categorical_cols=cfg["categorical_columns"],
+                numeric_cols=cfg["numeric_columns"],
+                model_name=model_name,
+                model_path=model_path,
+            )
+        st.success(f"Модель сохранена в `{model_path}`.")
+        st.json(metrics)
+
+
+def page_prediction(df: pd.DataFrame, cfg: dict) -> None:
+    st.subheader("Прогноз необходимости замены устройства")
+
+    model_path = st.text_input(
+        "Путь к обученной модели",
+        value="models/randomforest_full.pkl",
+    )
+
+    if not os.path.exists(model_path):
+        st.warning("Файл модели не найден. Сначала обучите модель.")
+        return
+
+    model = load_model(model_path)
+
+    st.markdown("### Введите параметры устройства")
+    input_data = {}
+
+    for col in cfg["categorical_columns"]:
+        input_data[col] = st.text_input(f"{col}")
+
+    for col in cfg["numeric_columns"]:
+        input_data[col] = st.number_input(f"{col}", value=0.0)
+
+    if st.button("Спрогнозировать"):
+        df_input = pd.DataFrame([input_data])
+
+        _, proba = predict_needs_upgrade(
+            model=model,
+            df_inputs=df_input,
+            feature_cols=cfg["categorical_columns"] + cfg["numeric_columns"],
+        )
+
+        probability = float(proba[0])
+
+        st.markdown("## Результат прогнозирования")
+        st.progress(probability)
+        st.markdown(f"### Вероятность необходимости замены: {probability:.2%}")
+
+        if probability >= 0.7:
+            st.error("Высокая вероятность необходимости замены устройства")
+        elif probability >= 0.5:
+            st.warning("Средняя вероятность необходимости замены устройства")
+        else:
+            st.success("Низкая вероятность необходимости замены устройства")
+
+
+def page_eda(df: pd.DataFrame) -> None:
+    st.subheader("Разведочный анализ данных (EDA)")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.pyplot(plot_ticket_counts_by_department(df))
+    with col2:
+        st.pyplot(plot_ticket_counts_by_device_type(df))
+
+    st.pyplot(plot_device_age_hist(df))
+    st.pyplot(plot_tickets_last_6_months_hist(df))
+
+
+def main() -> None:
+    st.title("Интеллектуальная система прогнозирования потребностей в обновлении вычислительной техники")
+
+    cfg = load_config()
+
+    st.sidebar.header("Загрузка данных")
+    uploaded_file = st.sidebar.file_uploader("Загрузите CSV с обращениями", type=["csv"])
+
+    if uploaded_file is not None:
+        df = pd.read_csv(uploaded_file)
+        st.sidebar.success("Данные успешно загружены.")
+    else:
+        df = _load_default_data()
+        st.sidebar.info("Используется демонстрационный датасет.")
+
+    page = st.sidebar.radio(
+        "Раздел приложения",
+        ["Обзор", "Данные", "Обучение", "Прогноз устройства", "EDA"],
+    )
+
+    if page == "Обзор":
+        page_overview()
+    elif page == "Данные":
+        page_data(df, cfg)
+    elif page == "Обучение":
+        page_training(df, cfg)
+    elif page == "Прогноз устройства":
+        page_prediction(df, cfg)
+    elif page == "EDA":
+        page_eda(df)
+
+
+if __name__ == "__main__":
+    main()
