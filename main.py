@@ -45,8 +45,8 @@ def _load_default_data() -> pd.DataFrame:
 def _required_columns(cfg: dict) -> list[str]:
     """Список обязательных столбцов для работы приложения."""
     cols = []
-    cols.extend(cfg.get("categorical_columns", []))
-    cols.extend(cfg.get("numeric_columns", []))
+    cols.extend(cfg.get("categorical_columns", []) or [])
+    cols.extend(cfg.get("numeric_columns", []) or [])
     cols.append(cfg.get("default_target_column"))
     # убираем None и дубликаты, сохраняя порядок
     seen = set()
@@ -62,10 +62,42 @@ def _required_columns(cfg: dict) -> list[str]:
 
 
 def _try_read_csv(uploaded_file, sep: str) -> pd.DataFrame:
-    """Читает CSV из uploaded_file, стараясь быть устойчивым к BOM/кодировкам."""
-    # Streamlit UploadedFile даёт file-like объект; pd.read_csv его понимает
-    # sep задаём явно из UI.
-    return pd.read_csv(uploaded_file, sep=sep)
+    """
+    Читает CSV из uploaded_file устойчиво к BOM.
+    Если sep неверный (получился 1 столбец), пытается авто-подбор из [',',';','\\t'].
+    """
+    # 1) Пробуем выбранный разделитель
+    try:
+        df = pd.read_csv(uploaded_file, sep=sep, encoding="utf-8-sig")
+    except TypeError:
+        # на некоторых версиях pandas encoding может не пройти для UploadedFile
+        df = pd.read_csv(uploaded_file, sep=sep)
+
+    # Если читается "в одну колонку" — часто разделитель не тот
+    if df.shape[1] <= 1:
+        # Важно: UploadedFile после чтения может оказаться "на конце", поэтому перемотаем
+        try:
+            uploaded_file.seek(0)
+        except Exception:
+            pass
+
+        for candidate in [",", ";", "\t"]:
+            if candidate == sep:
+                continue
+            try:
+                df2 = pd.read_csv(uploaded_file, sep=candidate, encoding="utf-8-sig")
+            except TypeError:
+                df2 = pd.read_csv(uploaded_file, sep=candidate)
+
+            if df2.shape[1] > 1:
+                return df2
+
+            try:
+                uploaded_file.seek(0)
+            except Exception:
+                pass
+
+    return df
 
 
 def _validate_uploaded_df(df: pd.DataFrame, cfg: dict) -> tuple[bool, list[str]]:
@@ -394,7 +426,19 @@ def main() -> None:
     cfg = load_config()
 
     # ==========================================================
-    # ЗАГРУЗКА ДАННЫХ
+    # 1) НАВИГАЦИЯ
+    # ==========================================================
+    st.sidebar.header("Разделы приложения")
+    page = st.sidebar.radio(
+        "Перейти к разделу",
+        ["Обзор", "Данные", "Обучение", "Сравнение моделей", "Прогноз устройства", "EDA", "Отчёт"],
+        label_visibility="collapsed",
+    )
+
+    st.sidebar.divider()
+
+    # ==========================================================
+    # 2) ЗАГРУЗКА ДАННЫХ
     # ==========================================================
     st.sidebar.header("Загрузка данных")
 
@@ -403,22 +447,28 @@ def main() -> None:
         st.session_state.current_df = _load_default_data()
         st.session_state.dataset_source = "demo"  # demo | user
 
-    # Показать требования к структуре
-    with st.sidebar.expander("Требования к датасету", expanded=False):
+    # Требования к структуре (с диагностикой)
+    with st.sidebar.expander("Требования к датасету", expanded=True):
         req = _required_columns(cfg)
-        st.write("Обязательные столбцы:")
-        st.code("\n".join(req), language="text")
+        if req:
+            st.write("Обязательные столбцы:")
+            st.code("\n".join(req), language="text")
+        else:
+            st.warning("Список обязательных столбцов пуст. Проверь config.yaml / load_config().")
+            st.write("Диагностика значений из cfg:")
+            st.write("categorical_columns:", cfg.get("categorical_columns"))
+            st.write("numeric_columns:", cfg.get("numeric_columns"))
+            st.write("default_target_column:", cfg.get("default_target_column"))
 
-    # Опции чтения CSV (частая причина “не работает” — разделитель)
+    # Опции чтения CSV
     sep = st.sidebar.selectbox("Разделитель CSV", options=[",", ";", "\t"], index=0)
-
     uploaded_file = st.sidebar.file_uploader("Загрузите CSV с обращениями", type=["csv"])
 
     col_a, col_b = st.sidebar.columns(2)
     with col_a:
-        apply_upload = st.button("Применить файл")
+        apply_upload = st.button("Применить файл", use_container_width=True)
     with col_b:
-        reset_demo = st.button("Сброс на демо")
+        reset_demo = st.button("Сброс на демо", use_container_width=True)
 
     if reset_demo:
         st.session_state.current_df = _load_default_data()
@@ -430,6 +480,12 @@ def main() -> None:
             st.sidebar.error("Сначала выберите CSV-файл.")
         else:
             try:
+                # важно: перемотка, если файл уже читали
+                try:
+                    uploaded_file.seek(0)
+                except Exception:
+                    pass
+
                 df_uploaded = _try_read_csv(uploaded_file, sep=sep)
                 ok, missing = _validate_uploaded_df(df_uploaded, cfg)
 
@@ -437,6 +493,9 @@ def main() -> None:
                     st.sidebar.error("CSV загружен, но структура не подходит.")
                     st.sidebar.write("Не хватает столбцов:")
                     st.sidebar.code("\n".join(missing), language="text")
+                    # Дополнительно покажем, что реально есть в загруженном файле
+                    with st.sidebar.expander("Показать столбцы загруженного файла", expanded=False):
+                        st.sidebar.code("\n".join(list(df_uploaded.columns)), language="text")
                 else:
                     st.session_state.current_df = df_uploaded
                     st.session_state.dataset_source = "user"
@@ -453,13 +512,8 @@ def main() -> None:
         st.success("Используется пользовательский датасет (загруженный вами).")
 
     # ==========================================================
-    # НАВИГАЦИЯ
+    # РЕНДЕР СТРАНИЦ
     # ==========================================================
-    page = st.sidebar.radio(
-        "Раздел приложения",
-        ["Обзор", "Данные", "Обучение", "Сравнение моделей", "Прогноз устройства", "EDA", "Отчёт"],
-    )
-
     if page == "Обзор":
         page_overview()
     elif page == "Данные":
