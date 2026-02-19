@@ -361,15 +361,31 @@ def main() -> None:
 
     cfg = load_config()
 
-    st.sidebar.header("Загрузка данных")
-    uploaded_file = st.sidebar.file_uploader("Загрузите CSV с обращениями", type=["csv"])
+st.sidebar.header("Загрузка данных")
 
-    if uploaded_file is not None:
-        df = pd.read_csv(uploaded_file)
-        st.success("Данные успешно загружены.")
-    else:
-        df = _load_default_data()
-        st.info("Используется демонстрационный датасет `data/sample_tickets.csv`.")
+uploaded_file = st.sidebar.file_uploader(
+    "Загрузите CSV с обращениями",
+    type=["csv"],
+    key="file_uploader"
+)
+
+# сохраняем пользовательский датасет между переходами
+if "user_df" not in st.session_state:
+    st.session_state["user_df"] = None
+
+if uploaded_file is not None:
+    st.session_state["user_df"] = pd.read_csv(uploaded_file)
+    st.sidebar.success("Пользовательский датасет загружен")
+
+if st.sidebar.button("Сбросить пользовательский датасет"):
+    st.session_state["user_df"] = None
+    st.rerun()
+
+if st.session_state["user_df"] is not None:
+    df = st.session_state["user_df"]
+else:
+    df = _load_default_data()
+    st.info("Используется демонстрационный датасет `data/sample_tickets.csv`.")
 
     page = st.sidebar.radio(
         "Раздел приложения",
