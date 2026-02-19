@@ -42,48 +42,65 @@ def _load_default_data() -> pd.DataFrame:
     return pd.read_csv("data/sample_tickets.csv")
 
 
+def _normalize_to_list(value) -> list[str]:
+    """
+    Приводит значение из config к списку.
+    - list -> list
+    - str  -> split по запятой
+    - None/другое -> []
+    """
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        # если в config по ошибке строка "a, b, c"
+        return [v.strip() for v in value.split(",") if v.strip()]
+    return []
+
+
 def _required_columns(cfg: dict) -> list[str]:
     """Список обязательных столбцов для работы приложения."""
-    cols = []
-    cols.extend(cfg.get("categorical_columns", []) or [])
-    cols.extend(cfg.get("numeric_columns", []) or [])
-    cols.append(cfg.get("default_target_column"))
-    # убираем None и дубликаты, сохраняя порядок
-    seen = set()
-    out = []
-    for c in cols:
-        if not c:
-            continue
-        if c in seen:
-            continue
-        seen.add(c)
-        out.append(c)
-    return out
+    cols: list[str] = []
+    cols.extend(_normalize_to_list(cfg.get("categorical_columns")))
+    cols.extend(_normalize_to_list(cfg.get("numeric_columns")))
+
+    target = cfg.get("default_target_column")
+    if isinstance(target, str) and target.strip():
+        cols.append(target.strip())
+
+    # убираем дубликаты, сохраняя порядок
+    return list(dict.fromkeys(cols))
 
 
 def _try_read_csv(uploaded_file, sep: str) -> pd.DataFrame:
     """
-    Читает CSV из uploaded_file устойчиво к BOM.
-    Если sep неверный (получился 1 столбец), пытается авто-подбор из [',',';','\\t'].
+    Читает CSV из uploaded_file устойчиво к BOM/кодировкам и к неверному разделителю.
+    Если выбранный sep даёт 1 столбец, пытается альтернативные (',', ';', '\\t').
     """
-    # 1) Пробуем выбранный разделитель
+    # Важно: перед чтением перематываем файл в начало
+    try:
+        uploaded_file.seek(0)
+    except Exception:
+        pass
+
+    # 1) пробуем выбранный sep
     try:
         df = pd.read_csv(uploaded_file, sep=sep, encoding="utf-8-sig")
     except TypeError:
-        # на некоторых версиях pandas encoding может не пройти для UploadedFile
         df = pd.read_csv(uploaded_file, sep=sep)
 
-    # Если читается "в одну колонку" — часто разделитель не тот
+    # 2) если подозрительно мало столбцов — пробуем другие разделители
     if df.shape[1] <= 1:
-        # Важно: UploadedFile после чтения может оказаться "на конце", поэтому перемотаем
-        try:
-            uploaded_file.seek(0)
-        except Exception:
-            pass
-
         for candidate in [",", ";", "\t"]:
             if candidate == sep:
                 continue
+
+            try:
+                uploaded_file.seek(0)
+            except Exception:
+                pass
+
             try:
                 df2 = pd.read_csv(uploaded_file, sep=candidate, encoding="utf-8-sig")
             except TypeError:
@@ -91,11 +108,6 @@ def _try_read_csv(uploaded_file, sep: str) -> pd.DataFrame:
 
             if df2.shape[1] > 1:
                 return df2
-
-            try:
-                uploaded_file.seek(0)
-            except Exception:
-                pass
 
     return df
 
@@ -430,11 +442,9 @@ def main() -> None:
     # ==========================================================
     st.sidebar.header("Разделы приложения")
     page = st.sidebar.radio(
-        "Перейти к разделу",
+        "Раздел приложения",
         ["Обзор", "Данные", "Обучение", "Сравнение моделей", "Прогноз устройства", "EDA", "Отчёт"],
-        label_visibility="collapsed",
     )
-
     st.sidebar.divider()
 
     # ==========================================================
@@ -447,18 +457,14 @@ def main() -> None:
         st.session_state.current_df = _load_default_data()
         st.session_state.dataset_source = "demo"  # demo | user
 
-    # Требования к структуре (с диагностикой)
-    with st.sidebar.expander("Требования к датасету", expanded=True):
+    # Показать требования к структуре
+    with st.sidebar.expander("Требования к датасету", expanded=False):
         req = _required_columns(cfg)
+        st.write("Обязательные столбцы:")
         if req:
-            st.write("Обязательные столбцы:")
             st.code("\n".join(req), language="text")
         else:
-            st.warning("Список обязательных столбцов пуст. Проверь config.yaml / load_config().")
-            st.write("Диагностика значений из cfg:")
-            st.write("categorical_columns:", cfg.get("categorical_columns"))
-            st.write("numeric_columns:", cfg.get("numeric_columns"))
-            st.write("default_target_column:", cfg.get("default_target_column"))
+            st.warning("Не удалось получить список обязательных столбцов из конфигурации.")
 
     # Опции чтения CSV
     sep = st.sidebar.selectbox("Разделитель CSV", options=[",", ";", "\t"], index=0)
@@ -466,9 +472,9 @@ def main() -> None:
 
     col_a, col_b = st.sidebar.columns(2)
     with col_a:
-        apply_upload = st.button("Применить файл", use_container_width=True)
+        apply_upload = st.button("Применить файл")
     with col_b:
-        reset_demo = st.button("Сброс на демо", use_container_width=True)
+        reset_demo = st.button("Сброс на демо")
 
     if reset_demo:
         st.session_state.current_df = _load_default_data()
@@ -480,12 +486,6 @@ def main() -> None:
             st.sidebar.error("Сначала выберите CSV-файл.")
         else:
             try:
-                # важно: перемотка, если файл уже читали
-                try:
-                    uploaded_file.seek(0)
-                except Exception:
-                    pass
-
                 df_uploaded = _try_read_csv(uploaded_file, sep=sep)
                 ok, missing = _validate_uploaded_df(df_uploaded, cfg)
 
@@ -493,7 +493,6 @@ def main() -> None:
                     st.sidebar.error("CSV загружен, но структура не подходит.")
                     st.sidebar.write("Не хватает столбцов:")
                     st.sidebar.code("\n".join(missing), language="text")
-                    # Дополнительно покажем, что реально есть в загруженном файле
                     with st.sidebar.expander("Показать столбцы загруженного файла", expanded=False):
                         st.sidebar.code("\n".join(list(df_uploaded.columns)), language="text")
                 else:
