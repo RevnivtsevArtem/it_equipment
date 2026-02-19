@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import io
+import os
 
 import pandas as pd
 import streamlit as st
@@ -109,6 +110,53 @@ def page_training(df: pd.DataFrame, cfg: dict) -> None:
         st.success(f"Модель `{model_name}` сохранена в `{model_path}`.")
         st.json(metrics)
 
+
+
+def page_prediction(df: pd.DataFrame, cfg: dict) -> None:
+    """Вкладка прогнозирования вероятности замены для конкретного устройства."""
+    st.subheader("Прогноз необходимости замены устройства")
+
+    model_path = st.text_input(
+        "Путь к обученной модели",
+        value="models/randomforest_full.pkl",
+    )
+
+    if not os.path.exists(model_path):
+        st.warning("Файл модели не найден. Сначала обучите модель во вкладке «Обучение».")
+        return
+
+    model = load_model(model_path)
+
+    st.markdown("### Введите параметры устройства")
+    input_data = {}
+
+    for col in cfg["categorical_columns"]:
+        input_data[col] = st.text_input(f"{col}")
+
+    for col in cfg["numeric_columns"]:
+        input_data[col] = st.number_input(f"{col}", value=0.0)
+
+    if st.button("Спрогнозировать"):
+        df_input = pd.DataFrame([input_data])
+
+        labels, proba = predict_needs_upgrade(
+            model=model,
+            df_inputs=df_input,
+            feature_cols=cfg["categorical_columns"] + cfg["numeric_columns"],
+        )
+
+        probability = float(proba[0])
+
+        st.markdown("## Результат прогнозирования")
+        st.progress(probability)
+        st.markdown(f"### Вероятность необходимости замены: {probability:.2%}")
+
+        if probability >= 0.7:
+            st.error("Высокая вероятность необходимости замены устройства")
+        elif probability >= 0.5:
+            st.warning("Средняя вероятность необходимости замены устройства")
+        else:
+            st.success("Низкая вероятность необходимости замены устройства")
 
 def page_model_comparison(df: pd.DataFrame, cfg: dict) -> None:
     import io
@@ -289,7 +337,7 @@ def main() -> None:
 
     page = st.sidebar.radio(
         "Раздел приложения",
-        ["Обзор", "Данные", "Обучение", "Сравнение моделей", "EDA", "Отчёт"],
+        ["Обзор", "Данные", "Обучение", "Сравнение моделей", "Прогноз устройства", "EDA", "Отчёт"],
     )
 
     if page == "Обзор":
@@ -300,6 +348,8 @@ def main() -> None:
         page_training(df, cfg)
     elif page == "Сравнение моделей":
         page_model_comparison(df, cfg)
+    elif page == "Прогноз устройства":
+        page_prediction(df, cfg)
     elif page == "EDA":
         page_eda(df)
     elif page == "Отчёт":
