@@ -3,7 +3,8 @@
 Главное web-приложение Streamlit.
 
 Автор: Ревнивцев Артем Александрович
-Тема ВКР: Интеллектуальная система прогнозирования потребностей в обновлении вычислительной техники.
+Тема ВКР: Интеллектуальная система прогнозирования потребностей
+в обновлении вычислительной техники.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from src.app_core import (
     predict_needs_upgrade,
     fit_model_and_evaluate,
     evaluate_all_models,
-    )
+)
 
 from src.eda import (
     plot_ticket_counts_by_department,
@@ -29,6 +30,7 @@ from src.eda import (
     plot_device_age_hist,
     plot_tickets_last_6_months_hist,
 )
+
 from src.evaluation import (
     plot_confusion_matrix,
     plot_roc_curve,
@@ -37,52 +39,39 @@ from src.evaluation import (
 )
 
 
+# =========================================================
+# Загрузка демо-датасета
+# =========================================================
+
 def _load_default_data() -> pd.DataFrame:
-    """Загружает демонстрационный датасет."""
     return pd.read_csv("data/sample_tickets.csv")
 
-def _validate_uploaded_dataset(df: pd.DataFrame, cfg: dict):
-    """Проверка структуры пользовательского датасета"""
-    required_columns = (
-        [cfg["default_target_column"]]
-        + cfg["categorical_columns"]
-        + cfg["numeric_columns"]
-    )
 
-    missing_cols = [col for col in required_columns if col not in df.columns]
-    if missing_cols:
-        return None, f"Отсутствуют обязательные столбцы: {missing_cols}"
-
-    target_col = cfg["default_target_column"]
-    df[target_col] = pd.to_numeric(df[target_col], errors="coerce")
-    df = df.dropna(subset=[target_col])
-    df[target_col] = df[target_col].astype(int)
-
-    return df, None
-
-
+# =========================================================
+# Страницы приложения
+# =========================================================
 
 def page_overview() -> None:
-    """Вкладка с кратким описанием системы."""
     st.subheader("Общая информация о системе")
     st.markdown(
         """
-        Данное приложение реализует интеллектуальный сервис прогнозирования потребностей
-        в обновлении вычислительной техники на основе обращений в службу технической поддержки.
+Данное приложение реализует интеллектуальный сервис прогнозирования
+потребностей в обновлении вычислительной техники на основе обращений
+в службу технической поддержки.
 
-        Основные функции:
-        - загрузка и просмотр данных;
-        - обучение и сохранение моделей;
-        - применение обученных моделей для прогнозирования;
-        - сравнение нескольких моделей по ключевым метрикам качества;
-        - визуальный анализ данных и результатов обучения.
-        """
+Основные функции:
+- загрузка и просмотр данных;
+- обучение и сохранение моделей;
+- применение обученных моделей;
+- сравнение моделей;
+- визуальный анализ данных.
+"""
     )
 
 
 def page_data(df: pd.DataFrame, cfg: dict) -> None:
-    """Вкладка для работы с данными."""
     st.subheader("Работа с данными")
+
     st.write("Размер набора данных:", df.shape)
     st.dataframe(df.head(20))
 
@@ -101,23 +90,29 @@ def page_data(df: pd.DataFrame, cfg: dict) -> None:
 
 
 def page_training(df: pd.DataFrame, cfg: dict) -> None:
-    """Вкладка обучения модели на всём датасете (демонстрационный режим)."""
     st.subheader("Обучение и сохранение модели")
+
     target_col = cfg["default_target_column"]
     feature_cols = cfg["categorical_columns"] + cfg["numeric_columns"]
 
     if target_col not in df.columns:
-        st.error(f"Целевой столбец `{target_col}` отсутствует в данных.")
+        st.error(f"Целевой столбец `{target_col}` отсутствует.")
         return
 
     model_name = st.selectbox(
-        "Выберите модель для обучения",
-        ["LogisticRegression", "KNN", "RandomForest", "GradientBoosting", "ExtraTrees", "MLPClassifier"],
+        "Выберите модель",
+        ["LogisticRegression", "KNN", "RandomForest",
+         "GradientBoosting", "ExtraTrees", "MLPClassifier"],
     )
-    model_filename = st.text_input("Имя файла модели", value=f"{model_name.lower()}_full.pkl")
+
+    model_filename = st.text_input(
+        "Имя файла модели",
+        value=f"{model_name.lower()}_full.pkl"
+    )
+
     model_path = f"models/{model_filename}"
 
-    if st.button("Обучить модель на всём датасете и сохранить"):
+    if st.button("Обучить модель и сохранить"):
         with st.spinner("Идёт обучение модели..."):
             pipeline, metrics = fit_on_full_and_save(
                 df=df,
@@ -127,10 +122,8 @@ def page_training(df: pd.DataFrame, cfg: dict) -> None:
                 model_name=model_name,
                 model_path=model_path,
             )
-        st.success(f"Модель `{model_name}` сохранена в `{model_path}`.")
+        st.success(f"Модель сохранена в {model_path}")
         st.json(metrics)
-
-
 
 
 def page_prediction(df: pd.DataFrame, cfg: dict) -> None:
@@ -140,21 +133,20 @@ def page_prediction(df: pd.DataFrame, cfg: dict) -> None:
     feature_cols = cfg["categorical_columns"] + cfg["numeric_columns"]
 
     if target_col not in df.columns:
-        st.error(f"Целевой столбец `{target_col}` отсутствует в данных.")
+        st.error(f"Целевой столбец `{target_col}` отсутствует.")
         return
 
     df_clean = df.dropna(subset=feature_cols).reset_index(drop=True)
 
     if df_clean.empty:
-        st.error("Нет корректных данных для прогнозирования.")
+        st.error("Нет корректных данных.")
         return
 
     selected_index = st.selectbox(
-        "Выберите устройство (строку датасета)",
-        df_clean.index,
+        "Выберите строку датасета",
+        df_clean.index
     )
 
-    st.write("Параметры выбранного устройства:")
     st.dataframe(df_clean.loc[[selected_index]])
 
     if st.button("Спрогнозировать по всем моделям"):
@@ -162,12 +154,8 @@ def page_prediction(df: pd.DataFrame, cfg: dict) -> None:
         df_input = df_clean.loc[[selected_index]]
 
         model_names = [
-            "LogisticRegression",
-            "KNN",
-            "RandomForest",
-            "GradientBoosting",
-            "ExtraTrees",
-            "MLPClassifier",
+            "LogisticRegression", "KNN", "RandomForest",
+            "GradientBoosting", "ExtraTrees", "MLPClassifier"
         ]
 
         results = []
@@ -192,30 +180,19 @@ def page_prediction(df: pd.DataFrame, cfg: dict) -> None:
             })
 
         if not results:
-            st.error("Нет сохранённых моделей. Сначала обучите модели.")
+            st.error("Нет обученных моделей.")
             return
 
         results_df = pd.DataFrame(results)
-
-        st.subheader("Вероятности по каждой модели")
         st.dataframe(results_df)
 
         avg_proba = results_df["probability"].mean()
 
-        st.subheader("Ансамблевый прогноз (среднее значение)")
         st.progress(avg_proba)
         st.markdown(f"### Средняя вероятность: {avg_proba:.2%}")
 
-        if avg_proba >= 0.7:
-            st.error("Высокая вероятность необходимости замены устройства")
-        elif avg_proba >= 0.5:
-            st.warning("Средняя вероятность необходимости замены устройства")
-        else:
-            st.success("Низкая вероятность необходимости замены устройства")
-
 
 def page_model_comparison(df: pd.DataFrame, cfg: dict) -> None:
-    import io
     from sklearn.model_selection import train_test_split
 
     st.subheader("Сравнение моделей")
@@ -223,199 +200,111 @@ def page_model_comparison(df: pd.DataFrame, cfg: dict) -> None:
     target_col = cfg["default_target_column"]
 
     if target_col not in df.columns:
-        st.error(f"Целевой столбец `{target_col}` отсутствует в данных.")
+        st.error("Отсутствует целевой столбец.")
         return
 
-    test_size = st.slider("Доля тестовой выборки", 0.1, 0.4, 0.2, 0.05)
-    random_state = st.number_input("Random state", value=42, step=1)
+    test_size = st.slider("Размер тестовой выборки", 0.1, 0.4, 0.2, 0.05)
+    random_state = st.number_input("Random state", value=42)
 
-    df_split = df.dropna(subset=[target_col]).copy()
-    df_split[target_col] = pd.to_numeric(df_split[target_col], errors="coerce")
-    df_split = df_split.dropna(subset=[target_col])
-    df_split[target_col] = df_split[target_col].astype(int)
+    df_clean = df.dropna(subset=[target_col]).copy()
+    df_clean[target_col] = df_clean[target_col].astype(int)
 
-    if df_split[target_col].nunique() < 2:
-        df_train, df_test = train_test_split(
-            df_split,
-            test_size=test_size,
-            random_state=random_state,
-        )
-    else:
-        df_train, df_test = train_test_split(
-            df_split,
-            test_size=test_size,
-            random_state=random_state,
-            stratify=df_split[target_col],
-        )
+    df_train, df_test = train_test_split(
+        df_clean,
+        test_size=test_size,
+        random_state=random_state,
+        stratify=df_clean[target_col] if df_clean[target_col].nunique() > 1 else None
+    )
 
-    all_models = [
-        "LogisticRegression",
-        "KNN",
-        "RandomForest",
-        "GradientBoosting",
-        "ExtraTrees",
-        "MLPClassifier",
+    models = [
+        "LogisticRegression", "KNN", "RandomForest",
+        "GradientBoosting", "ExtraTrees", "MLPClassifier"
     ]
 
-    if st.button("Обучить и сравнить модели"):
+    if st.button("Обучить и сравнить"):
         report_df = evaluate_all_models(
             df_train=df_train,
             df_test=df_test,
             target_column=target_col,
             categorical_cols=cfg["categorical_columns"],
             numeric_cols=cfg["numeric_columns"],
-            model_names=all_models,
+            model_names=models,
         )
 
         st.dataframe(report_df)
 
-        for _, row in report_df.iterrows():
-            st.write(f"Модель {row['model']}: accuracy = {row.get('accuracy', '—')}")
-
-        buf = io.StringIO()
-        report_df.to_csv(buf, index=False)
-        st.download_button(
-            "Скачать отчёт по всем моделям (CSV)",
-            data=buf.getvalue(),
-            file_name="models_comparison_report.csv",
-            mime="text/csv",
-        )
-
 
 def page_eda(df: pd.DataFrame) -> None:
-    """Вкладка EDA."""
-    st.subheader("Разведочный анализ данных (EDA)")
-    st.write("Всего записей:", len(df))
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.pyplot(plot_ticket_counts_by_department(df))
-    with col2:
-        st.pyplot(plot_ticket_counts_by_device_type(df))
-
+    st.subheader("EDA")
+    st.pyplot(plot_ticket_counts_by_department(df))
+    st.pyplot(plot_ticket_counts_by_device_type(df))
     st.pyplot(plot_device_age_hist(df))
     st.pyplot(plot_tickets_last_6_months_hist(df))
 
 
-def page_report(df: pd.DataFrame, cfg: dict) -> None:
-    import io
-    from sklearn.model_selection import train_test_split
-
-    st.subheader("Демонстрация моделей и итоговый отчёт")
-
-    target_col = cfg["default_target_column"]
-
-    if target_col not in df.columns:
-        st.error(f"Целевой столбец `{target_col}` отсутствует в данных.")
-        return
-
-    test_size = st.slider("Доля тестовой выборки", 0.1, 0.4, 0.2, 0.05)
-    random_state = st.number_input("Random state", value=42, step=1)
-
-    df_split = df.dropna(subset=[target_col]).copy()
-    df_split[target_col] = pd.to_numeric(df_split[target_col], errors="coerce")
-    df_split = df_split.dropna(subset=[target_col])
-    df_split[target_col] = df_split[target_col].astype(int)
-
-    if df_split[target_col].nunique() < 2:
-        df_train, df_test = train_test_split(
-            df_split,
-            test_size=test_size,
-            random_state=random_state,
-        )
-    else:
-        df_train, df_test = train_test_split(
-            df_split,
-            test_size=test_size,
-            random_state=random_state,
-            stratify=df_split[target_col],
-        )
-
-    all_models = [
-        "LogisticRegression",
-        "KNN",
-        "RandomForest",
-        "GradientBoosting",
-        "ExtraTrees",
-        "MLPClassifier",
-    ]
-
-    if st.button("Сформировать отчёт по всем моделям"):
-        report_df = evaluate_all_models(
-            df_train=df_train,
-            df_test=df_test,
-            target_column=target_col,
-            categorical_cols=cfg["categorical_columns"],
-            numeric_cols=cfg["numeric_columns"],
-            model_names=all_models,
-        )
-
-        st.subheader("Итоговый отчёт по всем моделям")
-        st.dataframe(report_df)
-
-        for _, row in report_df.iterrows():
-            st.write(f"Модель {row['model']}: accuracy = {row.get('accuracy', '—')}")
-
-        buf = io.StringIO()
-        report_df.to_csv(buf, index=False)
-        st.download_button(
-            "Скачать отчёт по всем моделям (CSV)",
-            data=buf.getvalue(),
-            file_name="all_models_report.csv",
-            mime="text/csv",
-        )
-
+# =========================================================
+# MAIN
+# =========================================================
 
 def main() -> None:
-    st.set_page_config(page_title="Прогноз обновления вычислительной техники", layout="wide")
-    st.title("Интеллектуальная система прогнозирования потребностей в обновлении вычислительной техники")
-
-    st.markdown(
-        """
-**Автор ВКР:** Ревнивцев Артём Александрович  
-**Тема:** Интеллектуальная система прогнозирования потребностей в обновлении вычислительной техники  
-на основе обращений в службу технической поддержки  
-(на примере ЧОУ ВО «Московский университет имени С.Ю. Витте»)
-"""
+    st.set_page_config(
+        page_title="Прогноз обновления техники",
+        layout="wide"
     )
+
+    st.title("Интеллектуальная система прогнозирования")
 
     cfg = load_config()
 
+    # ============================
+    # ДОРАБОТАННАЯ ЗАГРУЗКА ДАННЫХ
+    # ============================
+
     st.sidebar.header("Загрузка данных")
 
-    data_source = st.sidebar.radio(
-        "Источник данных",
-        ["Демонстрационный датасет", "Загрузить свой CSV"],
+    uploaded_file = st.sidebar.file_uploader(
+        "Загрузите CSV",
+        type=["csv"]
     )
 
-    if data_source == "Загрузить свой CSV":
-        uploaded_file = st.sidebar.file_uploader("Загрузите CSV с обращениями", type=["csv"])
+    required_columns = (
+        cfg["categorical_columns"]
+        + cfg["numeric_columns"]
+        + [cfg["default_target_column"]]
+    )
 
-        if uploaded_file is not None:
-            try:
-                df_uploaded = pd.read_csv(uploaded_file)
-                df_validated, error = _validate_uploaded_dataset(df_uploaded, cfg)
+    if uploaded_file is not None:
+        try:
+            df_uploaded = pd.read_csv(uploaded_file)
 
-                if error:
-                    st.sidebar.error(error)
-                    df = _load_default_data()
-                    st.sidebar.info("Используется демонстрационный датасет.")
-                else:
-                    df = df_validated
-                    st.sidebar.success("Пользовательский датасет загружен.")
-            except Exception as e:
-                st.sidebar.error(f"Ошибка загрузки файла: {e}")
-                df = _load_default_data()
-        else:
-            df = _load_default_data()
-            st.sidebar.warning("Файл не загружен. Используется демонстрационный датасет.")
-    else:
-        df = _load_default_data()
-        st.sidebar.info("Используется демонстрационный датасет `data/sample_tickets.csv`.")
+            missing_cols = [
+                col for col in required_columns
+                if col not in df_uploaded.columns
+            ]
+
+            if missing_cols:
+                st.sidebar.error(
+                    f"Отсутствуют столбцы: {missing_cols}"
+                )
+                st.stop()
+
+            st.session_state["current_df"] = df_uploaded
+            st.sidebar.success("Пользовательский датасет загружен")
+
+        except Exception as e:
+            st.sidebar.error(f"Ошибка загрузки: {e}")
+            st.stop()
+
+    if "current_df" not in st.session_state:
+        st.session_state["current_df"] = _load_default_data()
+        st.sidebar.info("Используется демонстрационный датасет")
+
+    df = st.session_state["current_df"]
 
     page = st.sidebar.radio(
-        "Раздел приложения",
-        ["Обзор", "Данные", "Обучение", "Сравнение моделей", "Прогноз устройства", "EDA", "Отчёт"],
+        "Раздел",
+        ["Обзор", "Данные", "Обучение",
+         "Сравнение моделей", "Прогноз устройства", "EDA"]
     )
 
     if page == "Обзор":
@@ -430,8 +319,6 @@ def main() -> None:
         page_prediction(df, cfg)
     elif page == "EDA":
         page_eda(df)
-    elif page == "Отчёт":
-        page_report(df, cfg)
 
 
 if __name__ == "__main__":
