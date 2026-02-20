@@ -447,68 +447,60 @@ def main() -> None:
     )
     st.sidebar.divider()
 
-    # ==========================================================
-    # 2) ЗАГРУЗКА ДАННЫХ
-    # ==========================================================
-    st.sidebar.header("Загрузка данных")
+# ==========================================================
+# 2) ЗАГРУЗКА ДАННЫХ
+# ==========================================================
+st.sidebar.header("Загрузка данных")
 
-    # Инициализация состояния
-    if "current_df" not in st.session_state:
-        st.session_state.current_df = _load_default_data()
-        st.session_state.dataset_source = "demo"  # demo | user
+if "current_df" not in st.session_state:
+    st.session_state.current_df = _load_default_data()
+    st.session_state.dataset_source = "demo"
 
-    # Показать требования к структуре
-    with st.sidebar.expander("Требования к датасету", expanded=False):
-        req = _required_columns(cfg)
-        st.write("Обязательные столбцы:")
-        if req:
-            st.code("\n".join(req), language="text")
-        else:
-            st.warning("Не удалось получить список обязательных столбцов из конфигурации.")
-
-    # Опции чтения CSV
-    sep = st.sidebar.selectbox("Разделитель CSV", options=[",", ";", "\t"], index=0)
-    uploaded_file = st.sidebar.file_uploader("Загрузите CSV с обращениями", type=["csv"])
-
-    col_a, col_b = st.sidebar.columns(2)
-    with col_a:
-        apply_upload = st.button("Применить файл")
-    with col_b:
-        reset_demo = st.button("Сброс на демо")
-
-    if reset_demo:
-        st.session_state.current_df = _load_default_data()
-        st.session_state.dataset_source = "demo"
-        st.sidebar.success("Загружен демонстрационный датасет.")
-
-    if apply_upload:
-        if uploaded_file is None:
-            st.sidebar.error("Сначала выберите CSV-файл.")
-        else:
-            try:
-                df_uploaded = _try_read_csv(uploaded_file, sep=sep)
-                ok, missing = _validate_uploaded_df(df_uploaded, cfg)
-
-                if not ok:
-                    st.sidebar.error("CSV загружен, но структура не подходит.")
-                    st.sidebar.write("Не хватает столбцов:")
-                    st.sidebar.code("\n".join(missing), language="text")
-                    with st.sidebar.expander("Показать столбцы загруженного файла", expanded=False):
-                        st.sidebar.code("\n".join(list(df_uploaded.columns)), language="text")
-                else:
-                    st.session_state.current_df = df_uploaded
-                    st.session_state.dataset_source = "user"
-                    st.sidebar.success("Пользовательский датасет применён. Все разделы будут работать на нём.")
-            except Exception as e:
-                st.sidebar.error(f"Ошибка чтения CSV: {e}")
-
-    # Текущий датасет
-    df = st.session_state.current_df
-
-    if st.session_state.dataset_source == "demo":
-        st.info("Используется демонстрационный датасет `data/sample_tickets.csv`.")
+# Требования
+with st.sidebar.expander("Требования к датасету", expanded=False):
+    req = _required_columns(cfg)
+    st.write("Обязательные столбцы:")
+    if req:
+        st.code("\n".join(req), language="text")
     else:
-        st.success("Используется пользовательский датасет (загруженный вами).")
+        st.warning("Не удалось получить список обязательных столбцов.")
+
+sep = st.sidebar.selectbox("Разделитель CSV", [",", ";", "\t"])
+
+uploaded_file = st.sidebar.file_uploader(
+    "Загрузите CSV с обращениями",
+    type=["csv"]
+)
+
+reset_demo = st.sidebar.button("Сброс на демо")
+
+if reset_demo:
+    st.session_state.current_df = _load_default_data()
+    st.session_state.dataset_source = "demo"
+    st.sidebar.success("Загружен демонстрационный датасет.")
+
+# ⬇️ ВАЖНО: НЕТ КНОПКИ «Применить»
+if uploaded_file is not None:
+    try:
+        df_uploaded = _try_read_csv(uploaded_file, sep=sep)
+        ok, missing = _validate_uploaded_df(df_uploaded, cfg)
+
+        if not ok:
+            st.sidebar.error("CSV загружен, но структура не подходит.")
+            st.sidebar.code("\n".join(missing), language="text")
+        else:
+            st.session_state.current_df = df_uploaded
+            st.session_state.dataset_source = "user"
+            st.sidebar.success("Пользовательский датасет загружен.")
+    except Exception as e:
+        st.sidebar.error(f"Ошибка чтения CSV: {e}")
+
+df = st.session_state.current_df
+
+if st.session_state.dataset_source == "demo":
+    st.info("Используется демонстрационный датасет.")
+else:
+    st.success("Используется пользовательский датасет.")
 
     # ==========================================================
     # РЕНДЕР СТРАНИЦ
