@@ -29,6 +29,7 @@ from src.eda import (
     plot_device_age_hist,
     plot_tickets_last_6_months_hist,
 )
+
 from src.evaluation import (
     plot_confusion_matrix,
     plot_roc_curve,
@@ -37,104 +38,20 @@ from src.evaluation import (
 )
 
 
+# ================================
+# Загрузка демо датасета
+# ================================
+
 def _load_default_data() -> pd.DataFrame:
     """Загружает демонстрационный датасет."""
     return pd.read_csv("data/sample_tickets.csv")
 
 
-def _normalize_to_list(value) -> list[str]:
-    """
-    Приводит значение из config к списку.
-    - list -> list
-    - str  -> split по запятой
-    - None/другое -> []
-    """
-    if value is None:
-        return []
-    if isinstance(value, list):
-        return value
-    if isinstance(value, str):
-        # если в config по ошибке строка "a, b, c"
-        return [v.strip() for v in value.split(",") if v.strip()]
-    return []
-
-
-def _required_columns(cfg: dict) -> list[str]:
-    """Список обязательных столбцов для работы приложения."""
-    cols: list[str] = []
-    cols.extend(_normalize_to_list(cfg.get("categorical_columns")))
-    cols.extend(_normalize_to_list(cfg.get("numeric_columns")))
-
-    target = cfg.get("default_target_column")
-    if isinstance(target, str) and target.strip():
-        cols.append(target.strip())
-
-    # убираем дубликаты, сохраняя порядок
-    return list(dict.fromkeys(cols))
-
-
-def _try_read_csv(uploaded_file, sep: str) -> pd.DataFrame:
-    """
-    Читает CSV из uploaded_file устойчиво к BOM/кодировкам и к неверному разделителю.
-    Если выбранный sep даёт 1 столбец, пытается альтернативные (',', ';', '\\t').
-    """
-    # Важно: перед чтением перематываем файл в начало
-    try:
-        uploaded_file.seek(0)
-    except Exception:
-        pass
-
-    # 1) пробуем выбранный sep
-    try:
-        df = pd.read_csv(uploaded_file, sep=sep, encoding="utf-8-sig")
-    except TypeError:
-        df = pd.read_csv(uploaded_file, sep=sep)
-    except Exception:
-        # на всякий случай — без encoding
-        try:
-            uploaded_file.seek(0)
-        except Exception:
-            pass
-        df = pd.read_csv(uploaded_file, sep=sep)
-
-    # 2) если подозрительно мало столбцов — пробуем другие разделители
-    if df.shape[1] <= 1:
-        for candidate in [",", ";", "\t"]:
-            if candidate == sep:
-                continue
-
-            try:
-                uploaded_file.seek(0)
-            except Exception:
-                pass
-
-            try:
-                df2 = pd.read_csv(uploaded_file, sep=candidate, encoding="utf-8-sig")
-            except TypeError:
-                df2 = pd.read_csv(uploaded_file, sep=candidate)
-            except Exception:
-                try:
-                    uploaded_file.seek(0)
-                except Exception:
-                    pass
-                df2 = pd.read_csv(uploaded_file, sep=candidate)
-
-            if df2.shape[1] > 1:
-                return df2
-
-    return df
-
-
-def _validate_uploaded_df(df: pd.DataFrame, cfg: dict) -> tuple[bool, list[str]]:
-    """Проверяет, что в df есть все нужные колонки."""
-    required = _required_columns(cfg)
-    missing = [c for c in required if c not in df.columns]
-    ok = len(missing) == 0
-    return ok, missing
-
+# ================================
+# Страницы приложения
+# ================================
 
 def page_overview() -> None:
-    """Вкладка с кратким описанием системы."""
     st.subheader("Общая информация о системе")
     st.markdown(
         """
@@ -152,17 +69,12 @@ def page_overview() -> None:
 
 
 def page_data(df: pd.DataFrame, cfg: dict) -> None:
-    """Вкладка для работы с данными."""
     st.subheader("Работа с данными")
     st.write("Размер набора данных:", df.shape)
     st.dataframe(df.head(20))
 
-    numeric_cols = cfg.get("numeric_columns", [])
     if st.checkbox("Показать статистику числовых признаков"):
-        if numeric_cols:
-            st.write(df[numeric_cols].describe())
-        else:
-            st.warning("В конфигурации не задан список numeric_columns.")
+        st.write(df[cfg["numeric_columns"]].describe())
 
     if st.checkbox("Скачать текущий датасет в CSV"):
         buf = io.StringIO()
@@ -176,10 +88,9 @@ def page_data(df: pd.DataFrame, cfg: dict) -> None:
 
 
 def page_training(df: pd.DataFrame, cfg: dict) -> None:
-    """Вкладка обучения модели на всём датасете."""
     st.subheader("Обучение и сохранение модели")
+
     target_col = cfg["default_target_column"]
-    feature_cols = cfg["categorical_columns"] + cfg["numeric_columns"]
 
     if target_col not in df.columns:
         st.error(f"Целевой столбец `{target_col}` отсутствует в данных.")
@@ -187,9 +98,15 @@ def page_training(df: pd.DataFrame, cfg: dict) -> None:
 
     model_name = st.selectbox(
         "Выберите модель для обучения",
-        ["LogisticRegression", "KNN", "RandomForest", "GradientBoosting", "ExtraTrees", "MLPClassifier"],
+        ["LogisticRegression", "KNN", "RandomForest",
+         "GradientBoosting", "ExtraTrees", "MLPClassifier"],
     )
-    model_filename = st.text_input("Имя файла модели", value=f"{model_name.lower()}_full.pkl")
+
+    model_filename = st.text_input(
+        "Имя файла модели",
+        value=f"{model_name.lower()}_full.pkl"
+    )
+
     model_path = f"models/{model_filename}"
 
     if st.button("Обучить модель на всём датасете и сохранить"):
@@ -202,6 +119,7 @@ def page_training(df: pd.DataFrame, cfg: dict) -> None:
                 model_name=model_name,
                 model_path=model_path,
             )
+
         st.success(f"Модель `{model_name}` сохранена в `{model_path}`.")
         st.json(metrics)
 
@@ -284,11 +202,10 @@ def page_prediction(df: pd.DataFrame, cfg: dict) -> None:
         elif avg_proba >= 0.5:
             st.warning("Средняя вероятность необходимости замены устройства")
         else:
-            st.success("Низкая вероятность необходимости необходимости замены устройства")
+            st.success("Низкая вероятность необходимости замены устройства")
 
 
 def page_model_comparison(df: pd.DataFrame, cfg: dict) -> None:
-    import io as _io
     from sklearn.model_selection import train_test_split
 
     st.subheader("Сравнение моделей")
@@ -342,192 +259,76 @@ def page_model_comparison(df: pd.DataFrame, cfg: dict) -> None:
 
         st.dataframe(report_df)
 
-        for _, row in report_df.iterrows():
-            st.write(f"Модель {row['model']}: accuracy = {row.get('accuracy', '—')}")
-
-        buf = _io.StringIO()
+        buf = io.StringIO()
         report_df.to_csv(buf, index=False)
         st.download_button(
-            "Скачать отчёт по всем моделям (CSV)",
+            "Скачать отчёт по моделям (CSV)",
             data=buf.getvalue(),
             file_name="models_comparison_report.csv",
             mime="text/csv",
         )
 
 
-def page_eda(df: pd.DataFrame) -> None:
-    """Вкладка EDA."""
-    st.subheader("Разведочный анализ данных (EDA)")
-    st.write("Всего записей:", len(df))
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.pyplot(plot_ticket_counts_by_department(df))
-    with col2:
-        st.pyplot(plot_ticket_counts_by_device_type(df))
-
-    st.pyplot(plot_device_age_hist(df))
-    st.pyplot(plot_tickets_last_6_months_hist(df))
-
-
-def page_report(df: pd.DataFrame, cfg: dict) -> None:
-    import io as _io
-    from sklearn.model_selection import train_test_split
-
-    st.subheader("Демонстрация моделей и итоговый отчёт")
-
-    target_col = cfg["default_target_column"]
-
-    if target_col not in df.columns:
-        st.error(f"Целевой столбец `{target_col}` отсутствует в данных.")
-        return
-
-    test_size = st.slider("Доля тестовой выборки", 0.1, 0.4, 0.2, 0.05)
-    random_state = st.number_input("Random state", value=42, step=1)
-
-    df_split = df.dropna(subset=[target_col]).copy()
-    df_split[target_col] = pd.to_numeric(df_split[target_col], errors="coerce")
-    df_split = df_split.dropna(subset=[target_col])
-    df_split[target_col] = df_split[target_col].astype(int)
-
-    if df_split[target_col].nunique() < 2:
-        df_train, df_test = train_test_split(
-            df_split,
-            test_size=test_size,
-            random_state=random_state,
-        )
-    else:
-        df_train, df_test = train_test_split(
-            df_split,
-            test_size=test_size,
-            random_state=random_state,
-            stratify=df_split[target_col],
-        )
-
-    all_models = [
-        "LogisticRegression",
-        "KNN",
-        "RandomForest",
-        "GradientBoosting",
-        "ExtraTrees",
-        "MLPClassifier",
-    ]
-
-    if st.button("Сформировать отчёт по всем моделям"):
-        report_df = evaluate_all_models(
-            df_train=df_train,
-            df_test=df_test,
-            target_column=target_col,
-            categorical_cols=cfg["categorical_columns"],
-            numeric_cols=cfg["numeric_columns"],
-            model_names=all_models,
-        )
-
-        st.subheader("Итоговый отчёт по всем моделям")
-        st.dataframe(report_df)
-
-        for _, row in report_df.iterrows():
-            st.write(f"Модель {row['model']}: accuracy = {row.get('accuracy', '—')}")
-
-        buf = _io.StringIO()
-        report_df.to_csv(buf, index=False)
-        st.download_button(
-            "Скачать отчёт по всем моделям (CSV)",
-            data=buf.getvalue(),
-            file_name="all_models_report.csv",
-            mime="text/csv",
-        )
-
+# ================================
+# MAIN
+# ================================
 
 def main() -> None:
-    st.set_page_config(page_title="Прогноз обновления вычислительной техники", layout="wide")
-    st.title("Интеллектуальная система прогнозирования потребностей в обновлении вычислительной техники")
-
-    st.markdown(
-        """
-**Автор ВКР:** Ревнивцев Артём Александрович  
-**Тема:** Интеллектуальная система прогнозирования потребностей в обновлении вычислительной техники  
-на основе обращений в службу технической поддержки  
-(на примере ЧОУ ВО «Московский университет имени С.Ю. Витте»)
-"""
+    st.set_page_config(
+        page_title="Прогноз обновления вычислительной техники",
+        layout="wide"
     )
+
+    st.title("Интеллектуальная система прогнозирования потребностей в обновлении вычислительной техники")
 
     cfg = load_config()
 
-    # ==========================================================
-    # 1) НАВИГАЦИЯ
-    # ==========================================================
-    st.sidebar.header("Разделы приложения")
-    page = st.sidebar.radio(
-        "Раздел приложения",
-        ["Обзор", "Данные", "Обучение", "Сравнение моделей", "Прогноз устройства", "EDA", "Отчёт"],
-    )
-    st.sidebar.divider()
-
-    # ==========================================================
-    # 2) ЗАГРУЗКА ДАННЫХ (ВНУТРИ main!)
-    # ==========================================================
     st.sidebar.header("Загрузка данных")
 
-    if "current_df" not in st.session_state:
-        st.session_state.current_df = _load_default_data()
-        st.session_state.dataset_source = "demo"
+    uploaded_file = st.sidebar.file_uploader(
+        "Загрузите CSV (структура должна соответствовать конфигурации)",
+        type=["csv"]
+    )
 
-    with st.sidebar.expander("Требования к датасету", expanded=False):
-        req = _required_columns(cfg)
-        st.write("Обязательные столбцы:")
-        if req:
-            st.code("\n".join(req), language="text")
-        else:
-            st.warning("Не удалось получить список обязательных столбцов из конфигурации.")
+    if uploaded_file is not None:
+        try:
+            df = pd.read_csv(uploaded_file)
 
-    # Стабильная загрузка: form + submit
-    with st.sidebar.form("dataset_upload_form", clear_on_submit=False):
-        sep = st.selectbox("Разделитель CSV", [",", ";", "\t"], index=0)
-        uploaded_file = st.file_uploader("Загрузите CSV с обращениями", type=["csv"])
-        col_a, col_b = st.columns(2)
-        with col_a:
-            apply_upload = st.form_submit_button("Применить файл")
-        with col_b:
-            reset_demo = st.form_submit_button("Сброс на демо")
+            required_columns = (
+                cfg["categorical_columns"]
+                + cfg["numeric_columns"]
+                + [cfg["default_target_column"]]
+            )
 
-    if reset_demo:
-        st.session_state.current_df = _load_default_data()
-        st.session_state.dataset_source = "demo"
-        st.sidebar.success("Загружен демонстрационный датасет.")
+            missing_columns = [c for c in required_columns if c not in df.columns]
 
-    if apply_upload:
-        if uploaded_file is None:
-            st.sidebar.error("Сначала выберите CSV-файл.")
-        else:
-            try:
-                df_uploaded = _try_read_csv(uploaded_file, sep=sep)
-                ok, missing = _validate_uploaded_df(df_uploaded, cfg)
+            if missing_columns:
+                st.error(f"Отсутствуют обязательные столбцы: {missing_columns}")
+                st.stop()
 
-                if not ok:
-                    st.sidebar.error("CSV загружен, но структура не подходит.")
-                    st.sidebar.write("Не хватает столбцов:")
-                    st.sidebar.code("\n".join(missing), language="text")
-                    with st.sidebar.expander("Показать столбцы загруженного файла", expanded=False):
-                        st.sidebar.code("\n".join(list(df_uploaded.columns)), language="text")
-                else:
-                    st.session_state.current_df = df_uploaded
-                    st.session_state.dataset_source = "user"
-                    st.sidebar.success("Пользовательский датасет применён. Все разделы будут работать на нём.")
-            except Exception as e:
-                st.sidebar.error(f"Ошибка чтения CSV: {e}")
+            for col in cfg["numeric_columns"]:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    # Текущий датасет
-    df = st.session_state.current_df
+            if df.empty:
+                st.error("Файл пуст.")
+                st.stop()
 
-    if st.session_state.dataset_source == "demo":
-        st.info("Используется демонстрационный датасет `data/sample_tickets.csv`.")
+            st.success("Пользовательский датасет успешно загружен.")
+
+        except Exception as e:
+            st.error(f"Ошибка загрузки: {e}")
+            st.stop()
+
     else:
-        st.success("Используется пользовательский датасет (загруженный вами).")
+        df = _load_default_data()
+        st.info("Используется демонстрационный датасет.")
 
-    # ==========================================================
-    # 3) РЕНДЕР СТРАНИЦ (ВСЕГДА!)
-    # ==========================================================
+    page = st.sidebar.radio(
+        "Раздел приложения",
+        ["Обзор", "Данные", "Обучение",
+         "Сравнение моделей", "Прогноз устройства"]
+    )
+
     if page == "Обзор":
         page_overview()
     elif page == "Данные":
@@ -538,10 +339,6 @@ def main() -> None:
         page_model_comparison(df, cfg)
     elif page == "Прогноз устройства":
         page_prediction(df, cfg)
-    elif page == "EDA":
-        page_eda(df)
-    elif page == "Отчёт":
-        page_report(df, cfg)
 
 
 if __name__ == "__main__":
