@@ -54,7 +54,6 @@ def _normalize_to_list(value) -> list[str]:
     if isinstance(value, list):
         return value
     if isinstance(value, str):
-        # если в config по ошибке строка "a, b, c"
         return [v.strip() for v in value.split(",") if v.strip()]
     return []
 
@@ -69,7 +68,6 @@ def _required_columns(cfg: dict) -> list[str]:
     if isinstance(target, str) and target.strip():
         cols.append(target.strip())
 
-    # убираем дубликаты, сохраняя порядок
     return list(dict.fromkeys(cols))
 
 
@@ -78,24 +76,20 @@ def _try_read_csv(uploaded_file, sep: str) -> pd.DataFrame:
     Читает CSV из uploaded_file устойчиво к BOM/кодировкам и к неверному разделителю.
     Если выбранный sep даёт 1 столбец, пытается альтернативные (',', ';', '\\t').
     """
-    # Важно: перед чтением перематываем файл в начало
     try:
         uploaded_file.seek(0)
     except Exception:
         pass
 
-    # 1) пробуем выбранный sep
     try:
         df = pd.read_csv(uploaded_file, sep=sep, encoding="utf-8-sig")
     except TypeError:
         df = pd.read_csv(uploaded_file, sep=sep)
 
-    # 2) если подозрительно мало столбцов — пробуем другие разделители
     if df.shape[1] <= 1:
         for candidate in [",", ";", "\t"]:
             if candidate == sep:
                 continue
-
             try:
                 uploaded_file.seek(0)
             except Exception:
@@ -121,7 +115,6 @@ def _validate_uploaded_df(df: pd.DataFrame, cfg: dict) -> tuple[bool, list[str]]
 
 
 def page_overview() -> None:
-    """Вкладка с кратким описанием системы."""
     st.subheader("Общая информация о системе")
     st.markdown(
         """
@@ -139,7 +132,6 @@ def page_overview() -> None:
 
 
 def page_data(df: pd.DataFrame, cfg: dict) -> None:
-    """Вкладка для работы с данными."""
     st.subheader("Работа с данными")
     st.write("Размер набора данных:", df.shape)
     st.dataframe(df.head(20))
@@ -159,7 +151,6 @@ def page_data(df: pd.DataFrame, cfg: dict) -> None:
 
 
 def page_training(df: pd.DataFrame, cfg: dict) -> None:
-    """Вкладка обучения модели на всём датасете (демонстрационный режим)."""
     st.subheader("Обучение и сохранение модели")
     target_col = cfg["default_target_column"]
     feature_cols = cfg["categorical_columns"] + cfg["numeric_columns"]
@@ -205,16 +196,12 @@ def page_prediction(df: pd.DataFrame, cfg: dict) -> None:
         st.error("Нет корректных данных для прогнозирования.")
         return
 
-    selected_index = st.selectbox(
-        "Выберите устройство (строку датасета)",
-        df_clean.index,
-    )
+    selected_index = st.selectbox("Выберите устройство (строку датасета)", df_clean.index)
 
     st.write("Параметры выбранного устройства:")
     st.dataframe(df_clean.loc[[selected_index]])
 
     if st.button("Спрогнозировать по всем моделям"):
-
         df_input = df_clean.loc[[selected_index]]
 
         model_names = [
@@ -230,7 +217,6 @@ def page_prediction(df: pd.DataFrame, cfg: dict) -> None:
 
         for model_name in model_names:
             model_path = f"models/{model_name.lower()}_full.pkl"
-
             if not os.path.exists(model_path):
                 continue
 
@@ -242,10 +228,7 @@ def page_prediction(df: pd.DataFrame, cfg: dict) -> None:
                 feature_cols=feature_cols,
             )
 
-            results.append({
-                "model": model_name,
-                "probability": float(proba[0]),
-            })
+            results.append({"model": model_name, "probability": float(proba[0])})
 
         if not results:
             st.error("Нет сохранённых моделей. Сначала обучите модели.")
@@ -291,11 +274,7 @@ def page_model_comparison(df: pd.DataFrame, cfg: dict) -> None:
     df_split[target_col] = df_split[target_col].astype(int)
 
     if df_split[target_col].nunique() < 2:
-        df_train, df_test = train_test_split(
-            df_split,
-            test_size=test_size,
-            random_state=random_state,
-        )
+        df_train, df_test = train_test_split(df_split, test_size=test_size, random_state=random_state)
     else:
         df_train, df_test = train_test_split(
             df_split,
@@ -339,7 +318,6 @@ def page_model_comparison(df: pd.DataFrame, cfg: dict) -> None:
 
 
 def page_eda(df: pd.DataFrame) -> None:
-    """Вкладка EDA."""
     st.subheader("Разведочный анализ данных (EDA)")
     st.write("Всего записей:", len(df))
 
@@ -374,11 +352,7 @@ def page_report(df: pd.DataFrame, cfg: dict) -> None:
     df_split[target_col] = df_split[target_col].astype(int)
 
     if df_split[target_col].nunique() < 2:
-        df_train, df_test = train_test_split(
-            df_split,
-            test_size=test_size,
-            random_state=random_state,
-        )
+        df_train, df_test = train_test_split(df_split, test_size=test_size, random_state=random_state)
     else:
         df_train, df_test = train_test_split(
             df_split,
@@ -447,63 +421,62 @@ def main() -> None:
     )
     st.sidebar.divider()
 
-# ==========================================================
-# 2) ЗАГРУЗКА ДАННЫХ
-# ==========================================================
-st.sidebar.header("Загрузка данных")
+    # ==========================================================
+    # 2) ЗАГРУЗКА ДАННЫХ  (ВАЖНО: ВНУТРИ main()!)
+    # ==========================================================
+    st.sidebar.header("Загрузка данных")
 
-if "current_df" not in st.session_state:
-    st.session_state.current_df = _load_default_data()
-    st.session_state.dataset_source = "demo"
+    if "current_df" not in st.session_state:
+        st.session_state.current_df = _load_default_data()
+        st.session_state.dataset_source = "demo"
 
-# Требования
-with st.sidebar.expander("Требования к датасету", expanded=False):
-    req = _required_columns(cfg)
-    st.write("Обязательные столбцы:")
-    if req:
-        st.code("\n".join(req), language="text")
-    else:
-        st.warning("Не удалось получить список обязательных столбцов.")
-
-sep = st.sidebar.selectbox("Разделитель CSV", [",", ";", "\t"])
-
-uploaded_file = st.sidebar.file_uploader(
-    "Загрузите CSV с обращениями",
-    type=["csv"]
-)
-
-reset_demo = st.sidebar.button("Сброс на демо")
-
-if reset_demo:
-    st.session_state.current_df = _load_default_data()
-    st.session_state.dataset_source = "demo"
-    st.sidebar.success("Загружен демонстрационный датасет.")
-
-# ⬇️ ВАЖНО: НЕТ КНОПКИ «Применить»
-if uploaded_file is not None:
-    try:
-        df_uploaded = _try_read_csv(uploaded_file, sep=sep)
-        ok, missing = _validate_uploaded_df(df_uploaded, cfg)
-
-        if not ok:
-            st.sidebar.error("CSV загружен, но структура не подходит.")
-            st.sidebar.code("\n".join(missing), language="text")
+    with st.sidebar.expander("Требования к датасету", expanded=False):
+        req = _required_columns(cfg)
+        st.write("Обязательные столбцы:")
+        if req:
+            st.code("\n".join(req), language="text")
         else:
-            st.session_state.current_df = df_uploaded
-            st.session_state.dataset_source = "user"
-            st.sidebar.success("Пользовательский датасет загружен.")
-    except Exception as e:
-        st.sidebar.error(f"Ошибка чтения CSV: {e}")
+            st.warning("Не удалось получить список обязательных столбцов.")
 
-df = st.session_state.current_df
+    sep = st.sidebar.selectbox("Разделитель CSV", [",", ";", "\t"])
 
-if st.session_state.dataset_source == "demo":
-    st.info("Используется демонстрационный датасет.")
-else:
-    st.success("Используется пользовательский датасет.")
+    uploaded_file = st.sidebar.file_uploader(
+        "Загрузите CSV с обращениями",
+        type=["csv"]
+    )
+
+    reset_demo = st.sidebar.button("Сброс на демо")
+
+    if reset_demo:
+        st.session_state.current_df = _load_default_data()
+        st.session_state.dataset_source = "demo"
+        st.sidebar.success("Загружен демонстрационный датасет.")
+
+    # ВАЖНО: без кнопки "Применить", чтобы не ломать rerun
+    if uploaded_file is not None:
+        try:
+            df_uploaded = _try_read_csv(uploaded_file, sep=sep)
+            ok, missing = _validate_uploaded_df(df_uploaded, cfg)
+
+            if not ok:
+                st.sidebar.error("CSV загружен, но структура не подходит.")
+                st.sidebar.code("\n".join(missing), language="text")
+            else:
+                st.session_state.current_df = df_uploaded
+                st.session_state.dataset_source = "user"
+                st.sidebar.success("Пользовательский датасет загружен.")
+        except Exception as e:
+            st.sidebar.error(f"Ошибка чтения CSV: {e}")
+
+    df = st.session_state.current_df
+
+    if st.session_state.dataset_source == "demo":
+        st.info("Используется демонстрационный датасет.")
+    else:
+        st.success("Используется пользовательский датасет.")
 
     # ==========================================================
-    # РЕНДЕР СТРАНИЦ
+    # 3) РЕНДЕР СТРАНИЦ (ДОЛЖЕН БЫТЬ ВСЕГДА, НЕ ТОЛЬКО В else!)
     # ==========================================================
     if page == "Обзор":
         page_overview()
